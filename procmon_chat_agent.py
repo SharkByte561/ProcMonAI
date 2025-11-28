@@ -212,12 +212,15 @@ def interactive_loop() -> None:
                     process_filter = Path(last_target_process).name
                     print(f"[info] Using filter: '{process_filter}'")
 
-                print(f"[info] Loading {last_pml}...")
+                limit_raw = _prompt("Event limit [1000]: ").strip()
+                event_limit = int(limit_raw) if limit_raw else 1000
+
+                print(f"[info] Loading {last_pml} (limit: {event_limit} events)...")
                 try:
                     last_raw_data = extract_raw_events(
                         str(last_pml),
                         process_filter=process_filter,
-                        limit=2000,
+                        limit=event_limit,
                     )
                     _print_raw_summary(last_raw_data)
                 except Exception as e:
@@ -262,12 +265,15 @@ def interactive_loop() -> None:
             if not process_filter and last_target_process:
                 process_filter = Path(last_target_process).name
 
-            print(f"[info] Analyzing {last_pml}...")
+            limit_raw = _prompt("Event limit [1000]: ").strip()
+            event_limit = int(limit_raw) if limit_raw else 1000
+
+            print(f"[info] Analyzing {last_pml} (limit: {event_limit} events)...")
             try:
                 last_raw_data = extract_raw_events(
                     str(last_pml),
                     process_filter=process_filter,
-                    limit=2000,
+                    limit=event_limit,
                 )
                 _print_raw_summary(last_raw_data)
 
