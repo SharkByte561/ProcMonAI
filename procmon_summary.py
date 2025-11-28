@@ -67,10 +67,10 @@ def extract_categorized_events(
 
             process_counts[process_name] += 1
 
-            op = str(event.operation)
-            path = event.path or ""
-            result = event.result or ""
-            detail = event.details or ""
+            op = str(event.operation) if event.operation else ""
+            path = str(event.path) if event.path else ""
+            result = str(event.result) if event.result else ""
+            detail = str(event.details) if event.details else ""
 
             event_dict = {
                 "process": process_name,
