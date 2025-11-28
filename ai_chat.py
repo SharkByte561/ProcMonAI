@@ -17,18 +17,36 @@ from typing import Any, Dict, List, Optional
 
 from anthropic import Anthropic, APIError
 
-# Path to semtools search binary
-SEMTOOLS_SEARCH = os.path.join(
-    os.environ.get("APPDATA", ""),
-    "npm", "node_modules", "@llamaindex", "semtools", "dist", "bin", "search.exe"
-)
+# Path to semtools search binary - check multiple locations
+def _get_semtools_paths() -> list:
+    """Get list of possible semtools search binary paths."""
+    paths = []
 
-# Fallback paths to check
-SEMTOOLS_SEARCH_PATHS = [
-    SEMTOOLS_SEARCH,
-    os.path.join(os.path.dirname(__file__), "semtools", "bin", "search.exe"),
-    "search",  # If in PATH
-]
+    # 1. Local project copy (bundled)
+    paths.append(os.path.join(os.path.dirname(__file__), "semtools", "bin", "search.exe"))
+
+    # 2. npm global install location (Windows)
+    appdata = os.environ.get("APPDATA", "")
+    if appdata:
+        paths.append(os.path.join(appdata, "npm", "node_modules", "@llamaindex", "semtools", "dist", "bin", "search.exe"))
+
+    # 3. npm prefix location (cross-platform)
+    try:
+        import subprocess
+        result = subprocess.run(["npm", "root", "-g"], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            npm_root = result.stdout.strip()
+            paths.append(os.path.join(npm_root, "@llamaindex", "semtools", "dist", "bin", "search.exe"))
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+        pass
+
+    # 4. In PATH
+    paths.append("search")
+    paths.append("search.exe")
+
+    return paths
+
+SEMTOOLS_SEARCH_PATHS = _get_semtools_paths()
 
 SYSTEM_PROMPT_TEMPLATE = """You are a security analysis assistant specialized in interpreting Process Monitor (Procmon) captures.
 
@@ -52,7 +70,18 @@ def find_search_binary() -> Optional[str]:
     """Find the semtools search binary."""
     for path in SEMTOOLS_SEARCH_PATHS:
         if os.path.isfile(path):
-            return path
+            # Verify it's actually executable by testing it
+            try:
+                result = subprocess.run(
+                    [path, "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if result.returncode == 0:
+                    return path
+            except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
+                continue
     return None
 
 
@@ -255,16 +284,50 @@ Relevant events from the capture:
         fd, self.events_file = tempfile.mkstemp(suffix='.txt', prefix='procmon_events_')
 
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
-            for event in events:
-                # Format each event as a searchable line
-                line = f"{event['process']} {event['operation']} {event['path']}"
+            for i, event in enumerate(events):
+                # Format each event as a searchable line with index for retrieval
+                # Include semantic hints for common search patterns
+                parts = [f"[{i}]", event['process'], event['operation'], event['path']]
+
+                # Add semantic context based on operation/path
+                path_lower = event['path'].lower()
+                op = event['operation'].lower()
+
+                # Registry hints
+                if 'reg' in op or path_lower.startswith('hk'):
+                    parts.append("registry")
+                    if 'run' in path_lower:
+                        parts.append("startup autorun persistence")
+                    if 'services' in path_lower:
+                        parts.append("service")
+                    if 'schedule' in path_lower or 'task' in path_lower:
+                        parts.append("scheduled task")
+
+                # File operation hints
+                if 'createfile' in op or 'writefile' in op:
+                    if '.exe' in path_lower or '.dll' in path_lower:
+                        parts.append("executable binary")
+                    if 'task' in path_lower or 'schedule' in path_lower:
+                        parts.append("scheduled task")
+                    if 'system32' in path_lower:
+                        parts.append("system file")
+
+                # Process hints
+                if 'process' in op:
+                    parts.append("process creation spawn")
+
+                # Network hints
+                if 'tcp' in op or 'udp' in op:
+                    parts.append("network connection")
+
                 detail = event.get('detail', '')
                 if detail:
-                    line += f" {detail}"
+                    parts.append(detail)
                 result = event.get('result', '')
                 if result:
-                    line += f" {result}"
-                f.write(line + "\n")
+                    parts.append(result)
+
+                f.write(" ".join(parts) + "\n")
 
     def _semantic_search(self, query: str, max_results: int = 75) -> str:
         """
