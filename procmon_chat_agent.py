@@ -138,9 +138,14 @@ def interactive_loop() -> None:
             return
 
         elif cmd == "start":
-            scenario = _prompt(
-                "Scenario (malware/software_install/file_tracking/network/privilege_escalation/custom) [malware]: "
-            ) or "malware"
+            print("Choose scenario:")
+            print("  malware            - File writes, registry persistence, network, process creation")
+            print("  software_install   - Installer activity, registry changes, file deployment")
+            print("  file_tracking      - All file operations (create, read, write, delete)")
+            print("  network            - TCP/UDP connections, sends, receives")
+            print("  privilege_escalation - Sensitive file/registry modifications")
+            print("  custom             - General-purpose with default noise filtering")
+            scenario = _prompt("Scenario [malware]: ") or "malware"
             duration_raw = _prompt("Duration in seconds (empty for manual): ")
             duration = int(duration_raw) if duration_raw else None
             target_process = _prompt("Target process (e.g., notepad.exe) [optional]: ")
