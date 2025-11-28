@@ -7,6 +7,7 @@ ProcmonAI lets you have natural language conversations with your Windows Process
 ## Features
 
 - **Multi-turn Conversations**: Claude remembers context across questions - ask follow-ups naturally
+- **Semantic Search**: Uses [SemTools](https://github.com/run-llama/semtools) to intelligently find relevant events per question, reducing token usage by 80%
 - **Scenario-based Filtering**: Pre-configured filters for malware analysis, software installation, file tracking, network activity, and privilege escalation
 - **Process-focused Analysis**: Filter captures to specific processes for targeted investigation
 - **Excel Reports**: Generate detailed spreadsheet reports from captures
@@ -18,14 +19,15 @@ ProcmonAI lets you have natural language conversations with your Windows Process
 
 - Windows 10/11
 - Python 3.10+
+- Node.js (for SemTools semantic search)
 - [Anthropic API key](https://console.anthropic.com/)
 
 ### Installation
 
 ```powershell
 # Clone the repository
-git clone https://github.com/yourusername/ProcmonAI.git
-cd ProcmonAI
+git clone https://github.com/SharkByte561/ProcMonAI.git
+cd ProcMonAI
 
 # Create and activate virtual environment
 python -m venv venv
@@ -33,6 +35,9 @@ python -m venv venv
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Install SemTools for semantic search (optional but recommended)
+npm install -g @llamaindex/semtools
 
 # Set your API key (run once, saves to User environment variables)
 .\set_anthropic_model.ps1
@@ -223,5 +228,6 @@ MIT License - See LICENSE file for details.
 ## Acknowledgments
 
 - [Sysinternals Process Monitor](https://docs.microsoft.com/en-us/sysinternals/downloads/procmon) by Mark Russinovich
+- [SemTools](https://github.com/run-llama/semtools) by LlamaIndex for fast semantic search with local embeddings
 - [procmon-parser](https://github.com/eronnen/procmon-parser) for PML file parsing
 - [Anthropic Claude](https://www.anthropic.com/) for AI-powered analysis
