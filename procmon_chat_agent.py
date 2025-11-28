@@ -145,7 +145,7 @@ def interactive_loop() -> None:
             print("  network            - TCP/UDP connections, sends, receives")
             print("  privilege_escalation - Sensitive file/registry modifications")
             print("  custom             - General-purpose with default noise filtering")
-            scenario = _prompt("Scenario [malware]: ") or "malware"
+            scenario = _prompt("Enter choice [malware]: ") or "malware"
             duration_raw = _prompt("Duration in seconds (empty for manual): ")
             duration = int(duration_raw) if duration_raw else None
             target_process = _prompt("Target process (e.g., notepad.exe) [optional]: ")
