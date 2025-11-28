@@ -2,6 +2,21 @@
 
 All notable changes to ProcmonAI will be documented in this file.
 
+## [1.1.0] - 2024-11-28
+
+### Changed
+
+- **Simplified Architecture**: Replaced semantic search (SemTools) with Anthropic's native prompt caching
+  - Full capture data now included in system prompt (cached after first request)
+  - Removes Node.js dependency
+  - More reliable - Claude sees all events, not just search results
+  - Simpler codebase with fewer moving parts
+
+### Removed
+
+- SemTools semantic search integration (no longer needed with prompt caching)
+- Node.js prerequisite
+
 ## [1.0.0] - 2024-11-28
 
 ### New Features
@@ -22,14 +37,6 @@ All notable changes to ProcmonAI will be documented in this file.
 - **Excel Report Generation**: Export capture analysis to spreadsheet format for further investigation
 
 - **Automated Procmon Control**: Start and stop captures programmatically with custom duration and filters
-
-### Performance
-
-- **Semantic Search Integration**: Uses semtools to find only relevant events per question (~75 events instead of thousands), reducing API token usage by 80%
-
-- **Smart Rate Limit Avoidance**: Compact summaries in system prompt + per-question semantic search keeps you under the 50k tokens/minute limit
-
-- **Keyword Fallback**: Automatically falls back to keyword-based search if semtools is unavailable
 
 ### Technical
 
