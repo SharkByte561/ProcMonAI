@@ -1,9 +1,10 @@
 """
-Interactive ProcmonAI agent with multi-turn chat support.
+Interactive ProcmonAI agent with summary-first analysis.
 
-This script provides a natural conversation interface for analyzing
-Procmon captures with Claude. Unlike single-query mode, chat mode
-maintains conversation history so you can ask follow-up questions.
+New approach:
+1. Generate local summary (no AI, instant)
+2. Show key findings immediately
+3. Allow targeted AI questions on specific categories
 """
 
 from __future__ import annotations
@@ -20,7 +21,12 @@ from procmon_runner import (
     start_procmon,
     stop_procmon,
 )
-from procmon_raw_extractor import extract_raw_events
+from procmon_summary import (
+    extract_categorized_events,
+    print_summary,
+    get_category_events,
+    format_events_for_ai,
+)
 
 # Try to import chat module
 try:
@@ -35,40 +41,43 @@ def _prompt(text: str) -> str:
     return input(text).strip()
 
 
-def _print_raw_summary(raw_data: dict) -> None:
-    """Print a brief summary of the raw extracted events."""
-    print("\n=== Capture Summary ===")
-    print(f"Total events: {raw_data['total_events']}")
-
-    if raw_data['truncated']:
-        print(f"(Showing first 1000 of {raw_data['total_events']} events)")
-
-    print("\nEvent types:")
-    for category, count in raw_data['event_categories'].items():
+def _build_summary_text(data: dict) -> str:
+    """Build a brief text summary for AI context."""
+    lines = [
+        f"Total Events: {data['total_events']}",
+        f"Process Filter: {data['process_filter'] or 'None'}",
+        "",
+        "Event Counts:",
+    ]
+    for cat, count in data['category_counts'].items():
         if count > 0:
-            print(f"  {category}: {count}")
+            lines.append(f"  {cat}: {count}")
 
-    print("\nTop processes:")
-    for proc in raw_data['top_processes'][:5]:
-        print(f"  {proc['process']}: {proc['count']} events")
-    print()
+    lines.append("")
+    lines.append("Top Processes:")
+    for proc in data['top_processes'][:5]:
+        lines.append(f"  {proc['process']}: {proc['count']}")
+
+    return "\n".join(lines)
 
 
-def chat_loop(chat: "ProcmonChat") -> None:
+def chat_loop(chat: "ProcmonChat", data: dict) -> None:
     """
-    Interactive chat loop for asking questions about a loaded capture.
+    Interactive chat loop with category-aware context.
 
-    Commands within chat:
-      - Type any question to ask Claude
-      - 'done' or 'exit' to leave chat mode
-      - 'clear' to clear conversation history (keeps capture)
-      - 'history' to see conversation length
+    Users can ask questions, and we'll include relevant events
+    based on keywords in their question.
     """
     print("\n" + "=" * 70)
-    print("CHAT MODE - Ask questions about the capture")
+    print("AI CHAT - Ask questions about the capture")
     print("=" * 70)
-    print("Type your questions naturally. Claude remembers the conversation.")
-    print("Commands: 'done' (exit chat), 'clear' (reset history), 'history' (show length)")
+    print("Commands:")
+    print("  Type a question to ask Claude (relevant events auto-selected)")
+    print("  'registry' - Analyze registry changes")
+    print("  'files'    - Analyze file operations")
+    print("  'network'  - Analyze network activity")
+    print("  'processes'- Analyze process creation")
+    print("  'done'     - Exit chat")
     print("=" * 70 + "\n")
 
     while True:
@@ -89,17 +98,72 @@ def chat_loop(chat: "ProcmonChat") -> None:
 
         if lower_input == 'clear':
             chat.clear()
-            print("[Conversation history cleared. Capture context retained.]")
+            print("[Conversation cleared]")
             continue
 
-        if lower_input == 'history':
-            print(f"[Conversation has {chat.get_conversation_length()} messages]")
-            continue
+        # Determine which events to include based on question
+        events_text = ""
+        category = None
 
-        # Send question to Claude
+        # Check for category commands
+        if lower_input in ('registry', 'reg'):
+            category = "Registry"
+            events = get_category_events(data, "registry", limit=150)
+            events_text = format_events_for_ai(events, max_events=150)
+            user_input = "Analyze these registry operations. What keys were created or modified? Are there any persistence mechanisms?"
+
+        elif lower_input in ('files', 'file'):
+            category = "File Operations"
+            events = get_category_events(data, "files", limit=150)
+            events_text = format_events_for_ai(events, max_events=150)
+            user_input = "Analyze these file operations. What files were created or written? Any executables or suspicious paths?"
+
+        elif lower_input in ('network', 'net'):
+            category = "Network"
+            events = get_category_events(data, "network", limit=100)
+            events_text = format_events_for_ai(events, max_events=100)
+            user_input = "Analyze this network activity. What connections were made? Any suspicious destinations?"
+
+        elif lower_input in ('processes', 'process', 'procs'):
+            category = "Processes"
+            events = get_category_events(data, "processes", limit=50)
+            events_text = format_events_for_ai(events, max_events=50)
+            user_input = "Analyze these process creation events. What processes were spawned? Any suspicious child processes?"
+
+        elif lower_input in ('dlls', 'dll', 'images'):
+            category = "DLL Loads"
+            events = get_category_events(data, "dlls", limit=100)
+            events_text = format_events_for_ai(events, max_events=100)
+            user_input = "Analyze these DLL/image loads. Any suspicious or unusual DLLs loaded?"
+
+        else:
+            # Auto-detect category from question keywords
+            if any(kw in lower_input for kw in ['registry', 'reg', 'hkey', 'hklm', 'hkcu', 'autorun', 'persistence', 'startup']):
+                events = get_category_events(data, "registry", limit=150)
+                events_text = format_events_for_ai(events, max_events=150)
+
+            elif any(kw in lower_input for kw in ['file', 'write', 'create', 'exe', 'dll', 'path', 'folder', 'directory']):
+                events = get_category_events(data, "files", limit=150)
+                events_text = format_events_for_ai(events, max_events=150)
+
+            elif any(kw in lower_input for kw in ['network', 'tcp', 'udp', 'connect', 'ip', 'port', 'internet']):
+                events = get_category_events(data, "network", limit=100)
+                events_text = format_events_for_ai(events, max_events=100)
+
+            elif any(kw in lower_input for kw in ['process', 'spawn', 'child', 'execute', 'launch']):
+                events = get_category_events(data, "processes", limit=50)
+                events_text = format_events_for_ai(events, max_events=50)
+
+            elif any(kw in lower_input for kw in ['task', 'schedule', 'scheduled']):
+                # Scheduled tasks are in file operations
+                all_files = get_category_events(data, "files", limit=500)
+                task_events = [e for e in all_files if 'task' in e['path'].lower() or 'schedule' in e['path'].lower()]
+                events_text = format_events_for_ai(task_events, max_events=50)
+
+        # Send to Claude
         try:
             print("\nClaude: ", end="", flush=True)
-            response = chat.ask(user_input)
+            response = chat.ask(user_input, events=events_text)
             print(response)
             print()
         except Exception as e:
@@ -107,27 +171,27 @@ def chat_loop(chat: "ProcmonChat") -> None:
 
 
 def interactive_loop() -> None:
-    """Main interactive loop with chat support."""
+    """Main interactive loop with summary-first approach."""
     print("=" * 70)
-    print(" ProcmonAI - Interactive Analysis with Chat")
+    print(" ProcmonAI - Summary-First Analysis")
     print("=" * 70)
     print("Commands:")
     print("  start   - Start a new Procmon capture")
     print("  stop    - Stop a running manual capture")
-    print("  chat    - Start interactive chat about the capture (NEW!)")
-    print("  analyze - Quick one-shot analysis")
+    print("  summary - Generate local summary (no AI, instant)")
+    print("  chat    - Ask AI questions about specific categories")
     print("  report  - Generate Excel report")
     print("  inspect - Debug: show processes in PML")
     print("  quit    - Exit")
     print("=" * 70)
 
     if not CHAT_AVAILABLE:
-        print("\n[WARNING] Chat module not available. Check ANTHROPIC_API_KEY.")
+        print("\n[WARNING] AI chat not available. Check ANTHROPIC_API_KEY.")
 
     last_pml: Optional[Path] = None
     last_scenario: str = "summary"
     last_target_process: Optional[str] = None
-    last_raw_data: Optional[dict] = None
+    last_data: Optional[dict] = None
     chat_session: Optional["ProcmonChat"] = None
 
     while True:
@@ -171,14 +235,14 @@ def interactive_loop() -> None:
                 last_pml = pml_path
                 last_scenario = scenario
                 last_target_process = target_process or None
-                last_raw_data = None
-                chat_session = None  # Reset chat for new capture
+                last_data = None
+                chat_session = None
 
                 if duration:
                     print(f"[info] Procmon running for {duration}s. Perform your activity.")
-                    print("[info] Use 'chat' or 'analyze' when done.")
+                    print("[info] Use 'summary' when done to see findings.")
                 else:
-                    print("[info] Procmon running. Use 'stop' when done, then 'chat'.")
+                    print("[info] Procmon running. Use 'stop' when done, then 'summary'.")
 
             except ProcmonError as e:
                 print(f"[error] {e}")
@@ -192,11 +256,7 @@ def interactive_loop() -> None:
             except ProcmonError as e:
                 print(f"[error] {e}")
 
-        elif cmd == "chat":
-            if not CHAT_AVAILABLE:
-                print("[error] Chat not available. Set ANTHROPIC_API_KEY.")
-                continue
-
+        elif cmd == "summary":
             if not last_pml:
                 print("[error] No capture yet. Run 'start' first.")
                 continue
@@ -205,98 +265,46 @@ def interactive_loop() -> None:
                 print(f"[error] PML not found: {last_pml}")
                 continue
 
-            # Extract events if needed
-            if not last_raw_data:
-                process_filter = _prompt("Process filter (optional): ").strip() or None
-                if not process_filter and last_target_process:
-                    process_filter = Path(last_target_process).name
-                    print(f"[info] Using filter: '{process_filter}'")
-
-                limit_raw = _prompt("Event limit [1000]: ").strip()
-                event_limit = int(limit_raw) if limit_raw else 1000
-
-                print(f"[info] Loading {last_pml} (limit: {event_limit} events)...")
-                try:
-                    last_raw_data = extract_raw_events(
-                        str(last_pml),
-                        process_filter=process_filter,
-                        limit=event_limit,
-                    )
-                    _print_raw_summary(last_raw_data)
-                except Exception as e:
-                    print(f"[error] Failed to extract: {e}")
-                    continue
-
-            # Start or resume chat session
-            if chat_session is None:
-                print("[info] Starting chat session with Claude...")
-                try:
-                    chat_session = ProcmonChat()
-                    initial_response = chat_session.load_capture(
-                        last_raw_data,
-                        scenario=last_scenario,
-                    )
-                    print("\n" + "=" * 70)
-                    print("CLAUDE'S INITIAL ANALYSIS")
-                    print("=" * 70)
-                    print(initial_response)
-                    print("=" * 70)
-                except Exception as e:
-                    print(f"[error] Failed to start chat: {e}")
-                    chat_session = None
-                    continue
-            else:
-                print("[info] Resuming existing chat session...")
-
-            # Enter chat loop
-            chat_loop(chat_session)
-
-        elif cmd == "analyze":
-            # Quick one-shot analysis (original behavior)
-            if not last_pml or not last_pml.exists():
-                print("[error] No capture available.")
-                continue
-
-            if not CHAT_AVAILABLE:
-                print("[error] Claude not available.")
-                continue
-
             process_filter = _prompt("Process filter (optional): ").strip() or None
             if not process_filter and last_target_process:
                 process_filter = Path(last_target_process).name
+                print(f"[info] Using filter: '{process_filter}'")
 
-            limit_raw = _prompt("Event limit [1000]: ").strip()
-            event_limit = int(limit_raw) if limit_raw else 1000
-
-            print(f"[info] Analyzing {last_pml} (limit: {event_limit} events)...")
+            print(f"[info] Analyzing {last_pml}...")
             try:
-                last_raw_data = extract_raw_events(
+                last_data = extract_categorized_events(
                     str(last_pml),
                     process_filter=process_filter,
-                    limit=event_limit,
                 )
-                _print_raw_summary(last_raw_data)
-
-                # One-shot analysis
-                temp_chat = ProcmonChat()
-                analysis = temp_chat.load_capture(last_raw_data, scenario=last_scenario)
-
-                print("\n" + "=" * 70)
-                print("ANALYSIS")
-                print("=" * 70)
-                print(analysis)
-                print("=" * 70)
-                print("\nTip: Use 'chat' for follow-up questions!")
+                print_summary(last_data)
+                print("\nTip: Use 'chat' to ask AI about specific categories!")
 
             except Exception as e:
-                print(f"[error] {e}")
+                print(f"[error] Failed to analyze: {e}")
+
+        elif cmd == "chat":
+            if not CHAT_AVAILABLE:
+                print("[error] AI chat not available. Set ANTHROPIC_API_KEY.")
+                continue
+
+            if not last_data:
+                print("[error] No summary yet. Run 'summary' first.")
+                continue
+
+            # Create/reuse chat session
+            if chat_session is None:
+                chat_session = ProcmonChat()
+                summary_text = _build_summary_text(last_data)
+                chat_session.set_summary(summary_text)
+
+            chat_loop(chat_session, last_data)
 
         elif cmd == "report":
             if not last_pml or not last_pml.exists():
                 print("[error] No capture available.")
                 continue
 
-            print(f"[info] Generating Excel report...")
+            print("[info] Generating Excel report...")
             try:
                 report_path = generate_excel_report(last_pml, open_file=True)
                 print(f"[success] Report: {report_path}")
@@ -340,8 +348,8 @@ def interactive_loop() -> None:
             print("\nCommands:")
             print("  start   - Capture new Procmon trace")
             print("  stop    - Stop manual capture")
-            print("  chat    - Interactive Q&A with Claude about the capture")
-            print("  analyze - One-shot analysis")
+            print("  summary - Local analysis (instant, no AI)")
+            print("  chat    - AI questions by category")
             print("  report  - Excel report")
             print("  inspect - Debug PML contents")
             print("  quit    - Exit")

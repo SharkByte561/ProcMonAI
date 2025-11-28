@@ -2,6 +2,33 @@
 
 All notable changes to ProcmonAI will be documented in this file.
 
+## [1.2.0] - 2024-11-28
+
+### Changed
+
+- **Summary-First Architecture**: Redesigned to avoid API rate limits
+  - Local summary generation (instant, no AI) shows key findings immediately
+  - AI chat now uses targeted category queries instead of full capture context
+  - Each question sends only relevant events (max 150) for that category
+  - Auto-detects categories from question keywords (registry, files, network, processes)
+
+### Added
+
+- `procmon_summary.py` - Structured summary generator with:
+  - Categorized event extraction (registry, files, network, processes, DLLs)
+  - Automatic detection of persistence mechanisms
+  - Scheduled task activity highlighting
+  - Executable file write detection
+  - Top processes analysis
+- New `summary` command for instant local analysis
+- Category shortcuts in chat: `registry`, `files`, `network`, `processes`, `dlls`
+
+### Technical
+
+- Reduced token usage from ~50k to ~5-10k per request
+- Conversation history trimmed to last 4 exchanges
+- Category-aware context selection
+
 ## [1.1.0] - 2024-11-28
 
 ### Changed

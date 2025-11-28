@@ -6,8 +6,9 @@ ProcmonAI lets you have natural language conversations with your Windows Process
 
 ## Features
 
-- **Multi-turn Conversations**: Claude remembers context across questions - ask follow-ups naturally
-- **Prompt Caching**: Capture data is cached by Anthropic after the first request, making follow-up questions fast and cost-effective
+- **Summary-First Analysis**: Instant local summary shows key findings before asking AI questions
+- **Category-Based Chat**: Ask AI questions about specific event types (registry, files, network, processes) without hitting rate limits
+- **Automatic Detection**: Local summary highlights persistence mechanisms, scheduled tasks, and suspicious executables
 - **Scenario-based Filtering**: Pre-configured filters for malware analysis, software installation, file tracking, network activity, and privilege escalation
 - **Process-focused Analysis**: Filter captures to specific processes for targeted investigation
 - **Excel Reports**: Generate detailed spreadsheet reports from captures
@@ -55,8 +56,8 @@ python procmon_chat_agent.py
 |---------|-------------|
 | `start` | Begin a new Procmon capture with scenario-based filters |
 | `stop` | Stop a manual (untimed) capture |
-| `chat` | Start interactive Q&A with Claude about the capture |
-| `analyze` | Quick one-shot analysis |
+| `summary` | Generate instant local summary (no AI, shows key findings) |
+| `chat` | Start category-based Q&A with Claude |
 | `report` | Generate Excel report |
 | `inspect` | Debug: show raw process data in PML |
 | `quit` | Exit the agent |
@@ -65,32 +66,61 @@ python procmon_chat_agent.py
 
 ```
 [agent] Command: start
-Scenario (malware/software_install/file_tracking/network/privilege_escalation/custom) [malware]: file_tracking
+Choose scenario:
+  malware            - File writes, registry persistence, network, process creation
+  software_install   - Installer activity, registry changes, file deployment
+  file_tracking      - All file operations (create, read, write, delete)
+  network            - TCP/UDP connections, sends, receives
+  privilege_escalation - Sensitive file/registry modifications
+  custom             - General-purpose with default noise filtering
+Enter choice [malware]: file_tracking
 Duration in seconds (empty for manual): 30
 Target process (e.g., notepad.exe) [optional]: notepad.exe
 
 [info] Procmon running for 30s. Perform your activity.
 
-[agent] Command: chat
+[agent] Command: summary
 Process filter (optional): notepad
-[info] Loading capture...
 
 ======================================================================
-CLAUDE'S INITIAL ANALYSIS
+CAPTURE SUMMARY
 ======================================================================
-Based on the capture, I can see Notepad.exe performed 847 operations...
+File: C:\ProgramData\Procmon\capture_file_tracking_20241128_143052.pml
+Total Events: 847
 
-[INFO] Most file activity occurred in the user's Documents folder...
+--- Event Counts by Category ---
+  File Creates: 12
+  File Writes: 45
+  Registry Sets: 8
+
+--- Key Findings ---
+[!] Executable Files Written (1):
+    C:\Users\...\AppData\Local\Temp\~notepad.tmp
+
 ======================================================================
 
-You: What files did notepad create?
-Claude: Notepad.exe created the following files:
+Tip: Use 'chat' to ask AI about specific categories!
+
+[agent] Command: chat
+
+======================================================================
+AI CHAT - Ask questions about the capture
+======================================================================
+Commands:
+  Type a question to ask Claude (relevant events auto-selected)
+  'registry' - Analyze registry changes
+  'files'    - Analyze file operations
+  'network'  - Analyze network activity
+  'processes'- Analyze process creation
+  'done'     - Exit chat
+======================================================================
+
+You: files
+Claude: [INFO] File Operations Analysis:
+  Notepad.exe created the following files:
   1. C:\Users\...\Documents\notes.txt (WriteFile operations)
-  2. C:\Users\...\AppData\Local\Temp\~DF4A2B.tmp (temporary file)
+  2. C:\Users\...\AppData\Local\Temp\~notepad.tmp (temporary file)
 ...
-
-You: Were any of those on the Desktop?
-Claude: Looking at the files I mentioned, none were on the Desktop...
 
 You: done
 [Leaving chat mode]
@@ -111,8 +141,9 @@ You: done
 
 ```
 ProcmonAI/
-├── procmon_chat_agent.py    # Main interactive CLI
-├── ai_chat.py               # Multi-turn chat with Claude API (prompt caching)
+├── procmon_chat_agent.py    # Main interactive CLI (summary-first flow)
+├── procmon_summary.py       # Local summary generator (no AI, instant)
+├── ai_chat.py               # Category-based chat with Claude API
 ├── procmon_runner.py        # Procmon process control
 ├── procmon_filters.py       # Scenario-based PMC filter generation
 ├── procmon_raw_extractor.py # PML file parsing and event extraction
@@ -127,25 +158,30 @@ ProcmonAI/
 Use ProcmonAI programmatically:
 
 ```python
-from procmon_raw_extractor import extract_raw_events
+from procmon_summary import extract_categorized_events, get_category_events, format_events_for_ai
 from ai_chat import ProcmonChat
 
-# Load an existing PML capture
-raw_data = extract_raw_events(
+# Load and categorize events from PML capture
+data = extract_categorized_events(
     r"C:\ProgramData\Procmon\capture.pml",
-    process_filter="notepad",
-    limit=2000
+    process_filter="notepad"
 )
 
-# Start chat session
+# See what's in the capture
+print(f"Total events: {data['total_events']}")
+print(f"Registry creates: {data['category_counts']['Registry Creates']}")
+print(f"File writes: {data['category_counts']['File Writes']}")
+
+# Start targeted chat session
 chat = ProcmonChat()
-print(chat.load_capture(raw_data, scenario="file_tracking"))
+chat.set_summary(f"Total: {data['total_events']} events")
 
-# Ask questions
-print(chat.ask("What files were modified?"))
-print(chat.ask("Show me any registry changes"))
+# Ask about specific categories
+registry_events = get_category_events(data, "registry", limit=100)
+events_text = format_events_for_ai(registry_events)
+print(chat.ask("What registry persistence was set up?", events=events_text))
 
-# Clear history but keep capture loaded
+# Clear history for next category
 chat.clear()
 ```
 
@@ -206,9 +242,9 @@ pip install -r requirements.txt
 - Use `inspect` command to see raw PML contents
 
 ### Rate limit errors (429)
-- The Haiku model has a 50k tokens/minute limit
-- Reduce event limit: `extract_raw_events(..., limit=500)`
-- Add delays between rapid API calls
+- The summary-first architecture dramatically reduces token usage
+- Each category query sends only ~100-150 events instead of full capture
+- If still hitting limits, use shorter category limits in chat
 
 ## Requirements
 
