@@ -32,6 +32,7 @@ def extract_categorized_events(
     registry_creates = []
     registry_sets = []
     registry_deletes = []
+    all_registry_ops = []  # All registry operations for persistence detection
     file_creates = []
     file_writes = []
     file_deletes = []
@@ -81,13 +82,17 @@ def extract_categorized_events(
                 "detail": detail,
             }
 
-            # Categorize
-            if op == "RegCreateKey":
-                registry_creates.append(event_dict)
-            elif op == "RegSetValue":
-                registry_sets.append(event_dict)
-            elif op in ("RegDeleteKey", "RegDeleteValue"):
-                registry_deletes.append(event_dict)
+            # Categorize - use broader matching
+            if op.startswith("Reg"):
+                # All registry ops go to appropriate buckets
+                if op == "RegCreateKey":
+                    registry_creates.append(event_dict)
+                elif op == "RegSetValue":
+                    registry_sets.append(event_dict)
+                elif op in ("RegDeleteKey", "RegDeleteValue"):
+                    registry_deletes.append(event_dict)
+                # Also track all registry ops for persistence detection
+                all_registry_ops.append(event_dict)
             elif op == "CreateFile" and "SUCCESS" in result:
                 file_creates.append(event_dict)
             elif op == "WriteFile":
@@ -115,6 +120,7 @@ def extract_categorized_events(
             "registry_creates": registry_creates,
             "registry_sets": registry_sets,
             "registry_deletes": registry_deletes,
+            "all_registry": all_registry_ops,
             "file_creates": file_creates,
             "file_writes": file_writes,
             "file_deletes": file_deletes,
@@ -158,30 +164,45 @@ def print_summary(data: Dict[str, Any]) -> None:
     # Highlight interesting findings
     print("\n--- Key Findings ---")
 
-    # Registry persistence
+    # Registry persistence - scan ALL registry operations
     persistence_keys = []
-    for ev in data['categories']['registry_creates'] + data['categories']['registry_sets']:
+    persistence_indicators = ['\\run\\', '\\runonce\\', 'currentversion\\run',
+                               'startup', 'userinit', 'shell', 'winlogon',
+                               'image file execution', 'appinit_dlls']
+    for ev in data['categories'].get('all_registry', []):
         path_lower = ev['path'].lower()
-        if any(x in path_lower for x in ['run', 'runonce', 'startup', 'userinit', 'shell']):
+        if any(x in path_lower for x in persistence_indicators):
             persistence_keys.append(ev)
 
     if persistence_keys:
-        print(f"\n[!] Potential Persistence ({len(persistence_keys)} registry keys):")
-        for ev in persistence_keys[:10]:
-            print(f"    {ev['operation']}: {ev['path'][:70]}")
-            if ev['detail']:
-                print(f"      -> {ev['detail'][:60]}")
+        print(f"\n[!] Potential Persistence ({len(persistence_keys)} registry operations):")
+        seen_paths = set()
+        for ev in persistence_keys:
+            # Dedupe by path
+            if ev['path'] not in seen_paths:
+                seen_paths.add(ev['path'])
+                print(f"    {ev['operation']}: {ev['path'][:70]}")
+                if ev['detail']:
+                    print(f"      -> {ev['detail'][:60]}")
+                if len(seen_paths) >= 10:
+                    break
 
-    # Scheduled tasks
+    # Scheduled tasks - check process creates for schtasks AND file operations
     task_events = []
+    for ev in data['categories']['process_creates']:
+        if 'schtasks' in ev['path'].lower() or 'schtasks' in ev['detail'].lower():
+            task_events.append(ev)
     for ev in data['categories']['file_creates'] + data['categories']['file_writes']:
-        if 'tasks' in ev['path'].lower() or 'schedule' in ev['path'].lower():
+        path_lower = ev['path'].lower()
+        if '\\tasks\\' in path_lower or 'system32\\tasks' in path_lower:
             task_events.append(ev)
 
     if task_events:
         print(f"\n[!] Scheduled Task Activity ({len(task_events)} operations):")
         for ev in task_events[:5]:
-            print(f"    {ev['operation']}: {ev['path'][:70]}")
+            print(f"    {ev['process']}: {ev['operation']} -> {ev['path'][:60]}")
+            if ev['detail']:
+                print(f"      {ev['detail'][:60]}")
 
     # Executables written
     exe_writes = []
@@ -217,7 +238,7 @@ def print_summary(data: Dict[str, Any]) -> None:
 def get_category_events(data: Dict[str, Any], category: str, limit: int = 100) -> List[Dict]:
     """Get events for a specific category, with optional limit."""
     cat_map = {
-        "registry": data['categories']['registry_creates'] + data['categories']['registry_sets'],
+        "registry": data['categories'].get('all_registry', []),  # All registry ops
         "registry_creates": data['categories']['registry_creates'],
         "registry_sets": data['categories']['registry_sets'],
         "files": data['categories']['file_creates'] + data['categories']['file_writes'],
