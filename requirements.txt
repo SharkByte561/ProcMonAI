@@ -1,0 +1,8 @@
+anthropic>=0.38.0,<1.0
+pandas>=2.1.0,<3.0.0
+rich>=13.7.0,<14.0.0
+
+# Local procmon-parser package (from bundled git source)
+-e ./procmon-parser
+
+
