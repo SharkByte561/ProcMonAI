@@ -130,18 +130,48 @@ RULES:
 1. ALWAYS use the exact CSV path: '{self.csv_path}'
 2. Column names with spaces MUST be quoted: "Process Name", "Command Line", "Time of Day"
 3. String comparisons are case-sensitive. Use ILIKE for case-insensitive matching.
-4. Use LIMIT to restrict results (default 100, but use 500+ for "all files" or comprehensive queries).
+4. Use LIMIT to restrict results (default 100, but use 500 for comprehensive queries like "all files").
 5. For pattern matching, use ILIKE with % wildcards.
-6. When searching for a program name, also check for installer names (e.g., "CCleaner" -> also check "ccsetup", "ccleaner")
+6. When searching for a program, check installer names too (e.g., "CCleaner" -> also check "ccsetup", "piriform")
+7. Always use DISTINCT for Path queries to avoid duplicates from multiple operations on same file.
 
-COMMON PROCMON PATTERNS:
-- Files CREATED: To find files a process created, look for DISTINCT Paths where Operation = 'CreateFile' AND Result = 'SUCCESS' AND Detail LIKE '%OpenResult: Created%'
-- Files WRITTEN: Operation = 'WriteFile' shows data being written to files
-- Registry persistence: Path contains 'Run', 'RunOnce', 'Services'
-- Process creation: Operation = 'Process Create'
-- Executable locations: Path ILIKE '%Program Files%' OR Path ILIKE '%.exe'
-- Network: Path contains 'TCP' or 'UDP'
-- DLL loading: Operation = 'Load Image'
+PROCMON OPERATION PATTERNS:
+
+FILE OPERATIONS:
+- Files CREATED (new files): Operation = 'CreateFile' AND Result = 'SUCCESS' AND Detail LIKE '%OpenResult: Created%'
+- Files WRITTEN TO: Operation = 'WriteFile' (shows data written to existing files)
+- Executables/DLLs created: Add AND (Path ILIKE '%.exe' OR Path ILIKE '%.dll')
+- Files in Program Files: Path ILIKE '%Program Files%'
+- Temp files: Path ILIKE '%Temp%' OR Path ILIKE '%AppData\\Local\\Temp%'
+
+REGISTRY OPERATIONS:
+- Registry values SET: Operation = 'RegSetValue' (returns Path and Detail with value data)
+- Registry keys CREATED: Operation = 'RegCreateKey'
+- App settings: Path ILIKE '%SOFTWARE%<appname>%'
+- Uninstall entries: Path ILIKE '%CurrentVersion\\Uninstall%'
+
+PERSISTENCE MECHANISMS:
+- Run keys: Path ILIKE '%CurrentVersion\\Run%' (NOT '%\\RunOnce%' for just Run)
+- Services: Path ILIKE '%\\Services\\%' AND Operation IN ('RegSetValue', 'RegCreateKey')
+- Scheduled Tasks: Path ILIKE '%\\Schedule\\%' OR Path ILIKE '%Tasks%'
+- Shell extensions: Path ILIKE '%\\shell\\%' AND Operation = 'RegSetValue'
+- App Paths: Path ILIKE '%\\App Paths\\%'
+- Startup folder: Path ILIKE '%\\Start Menu\\%' OR Path ILIKE '%\\Startup\\%'
+- Context menus: Path ILIKE '%CLSID%' AND Path ILIKE '%shell%'
+
+PROCESS/DLL OPERATIONS:
+- Process creation: Operation = 'Process Create' (check "Command Line" column for full cmdline)
+- DLL loading: Operation = 'Load Image' AND Path ILIKE '%.dll'
+
+NETWORK:
+- Network connections: Path ILIKE '%TCP%' OR Path ILIKE '%UDP%'
+
+TIPS:
+- For "what was installed", look for files created in Program Files AND registry in Uninstall
+- For "persistence", check Run keys, Services, Scheduled Tasks, Startup folder, shell extensions
+- For "what did X do", filter by "Process Name" ILIKE '%X%' first
+- Use GROUP BY and COUNT(*) for summary statistics
+- The Detail column contains extra info like registry value data, file sizes, command lines
 
 RESPOND WITH ONLY THE SQL QUERY. No explanation, no markdown, just the raw SQL.
 If the question cannot be answered with the available data, respond with: ERROR: <reason>"""
