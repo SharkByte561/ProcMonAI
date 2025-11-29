@@ -6,9 +6,9 @@ ProcmonAI lets you have natural language conversations with your Windows Process
 
 ## Features
 
-- **Summary-First Analysis**: Instant local summary shows key findings before asking AI questions
-- **Category-Based Chat**: Ask AI questions about specific event types (registry, files, network, processes) without hitting rate limits
-- **Automatic Detection**: Local summary highlights persistence mechanisms, scheduled tasks, and suspicious executables
+- **CSV-First Workflow**: Convert PML to CSV for portable, searchable analysis
+- **Smart AI Chat**: Ask questions in natural language - relevant events are automatically filtered and sent to Claude
+- **Category Analysis**: Quick commands for registry, files, network, process analysis
 - **Scenario-based Filtering**: Pre-configured filters for malware analysis, software installation, file tracking, network activity, and privilege escalation
 - **Process-focused Analysis**: Filter captures to specific processes for targeted investigation
 - **Excel Reports**: Generate detailed spreadsheet reports from captures
@@ -56,74 +56,78 @@ python procmon_chat_agent.py
 |---------|-------------|
 | `start` | Begin a new Procmon capture with scenario-based filters |
 | `stop` | Stop a manual (untimed) capture |
-| `summary` | Generate instant local summary (no AI, shows key findings) |
-| `chat` | Start category-based Q&A with Claude |
+| `convert` | Convert PML to CSV and show summary |
+| `load` | Load an existing CSV or PML file |
+| `chat` | Chat with AI about the capture |
+| `stats` | Show capture statistics |
 | `report` | Generate Excel report |
-| `inspect` | Debug: show raw process data in PML |
 | `quit` | Exit the agent |
 
 ## Example Session
 
 ```
 [agent] Command: start
-Choose scenario:
-  malware            - File writes, registry persistence, network, process creation
-  software_install   - Installer activity, registry changes, file deployment
-  file_tracking      - All file operations (create, read, write, delete)
-  network            - TCP/UDP connections, sends, receives
-  privilege_escalation - Sensitive file/registry modifications
-  custom             - General-purpose with default noise filtering
-Enter choice [malware]: file_tracking
-Duration in seconds (empty for manual): 30
-Target process (e.g., notepad.exe) [optional]: notepad.exe
+Enter choice [malware]: software_install
+Duration in seconds (empty for manual):
+Target process (e.g., notepad.exe) [optional]: ccsetup
 
-[info] Procmon running for 30s. Perform your activity.
+[info] Procmon running. Use 'stop' when done, then 'convert'.
 
-[agent] Command: summary
-Process filter (optional): notepad
+[agent] Command: stop
+[info] Procmon stopped.
+
+[agent] Command: convert
+Process filter (optional):
 
 ======================================================================
 CAPTURE SUMMARY
 ======================================================================
-File: C:\ProgramData\Procmon\capture_file_tracking_20241128_143052.pml
-Total Events: 847
+CSV File: C:\ProgramData\Procmon\capture.csv
+Total Events: 12847
 
---- Event Counts by Category ---
-  File Creates: 12
-  File Writes: 45
-  Registry Sets: 8
+--- Top Operations ---
+  RegQueryValue: 4521
+  ReadFile: 2103
+  CreateFile: 1847
+  RegOpenKey: 1234
 
---- Key Findings ---
-[!] Executable Files Written (1):
-    C:\Users\...\AppData\Local\Temp\~notepad.tmp
-
+--- Top Processes ---
+  ccsetup639.exe: 8432
+  msiexec.exe: 2341
+  explorer.exe: 874
 ======================================================================
-
-Tip: Use 'chat' to ask AI about specific categories!
 
 [agent] Command: chat
 
-======================================================================
-AI CHAT - Ask questions about the capture
-======================================================================
+============================================================
+CSV CHAT - Procmon Analysis
+============================================================
 Commands:
-  Type a question to ask Claude (relevant events auto-selected)
+  Type a question to ask Claude
   'registry' - Analyze registry changes
   'files'    - Analyze file operations
   'network'  - Analyze network activity
   'processes'- Analyze process creation
-  'done'     - Exit chat
-======================================================================
+  'search <pattern>' - Search for path pattern
+  'quit'     - Exit
+============================================================
 
-You: files
-Claude: [INFO] File Operations Analysis:
-  Notepad.exe created the following files:
-  1. C:\Users\...\Documents\notes.txt (WriteFile operations)
-  2. C:\Users\...\AppData\Local\Temp\~notepad.tmp (temporary file)
-...
+You: What registry persistence was set up?
+Claude: Based on the registry operations, I found the following persistence:
 
-You: done
-[Leaving chat mode]
+1. **Run Key**: `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run`
+   - Value: "CCleaner" -> "C:\Program Files\CCleaner\CCleaner64.exe /MONITOR"
+
+2. **Scheduled Task Registration**:
+   - Task: CCleaner Update
+   - Trigger: Daily at startup
+
+You: search schtasks
+Claude: Found 3 schtasks-related events:
+  - ccsetup639.exe created scheduled task "CCleaner Update"
+  - Task XML written to C:\Windows\System32\Tasks\CCleaner Update
+
+You: quit
 ```
 
 ## Analysis Scenarios
@@ -141,12 +145,11 @@ You: done
 
 ```
 ProcmonAI/
-├── procmon_chat_agent.py    # Main interactive CLI (summary-first flow)
-├── procmon_summary.py       # Local summary generator (no AI, instant)
-├── ai_chat.py               # Category-based chat with Claude API
+├── procmon_chat_agent.py    # Main interactive CLI
+├── pml_to_csv.py            # PML to CSV converter (Procmon-compatible format)
+├── csv_chat.py              # CSV-based AI chat with filtered queries
 ├── procmon_runner.py        # Procmon process control
 ├── procmon_filters.py       # Scenario-based PMC filter generation
-├── procmon_raw_extractor.py # PML file parsing and event extraction
 ├── procmon_report.py        # Excel report generation
 ├── procmon-parser/          # PML/PMC file format library (submodule)
 ├── assets/                  # Bundled Procmon executables
@@ -158,31 +161,28 @@ ProcmonAI/
 Use ProcmonAI programmatically:
 
 ```python
-from procmon_summary import extract_categorized_events, get_category_events, format_events_for_ai
-from ai_chat import ProcmonChat
+from pml_to_csv import convert_pml_to_csv, filter_csv_rows, format_rows_for_ai
+from csv_chat import CSVChat
 
-# Load and categorize events from PML capture
-data = extract_categorized_events(
+# Convert PML to CSV
+csv_path = convert_pml_to_csv(
     r"C:\ProgramData\Procmon\capture.pml",
-    process_filter="notepad"
+    process_filter="ccsetup"
 )
 
-# See what's in the capture
-print(f"Total events: {data['total_events']}")
-print(f"Registry creates: {data['category_counts']['Registry Creates']}")
-print(f"File writes: {data['category_counts']['File Writes']}")
+# Filter specific events
+registry_rows = filter_csv_rows(csv_path, operation="RegSetValue", limit=100)
+print(f"Found {len(registry_rows)} registry modifications")
 
-# Start targeted chat session
-chat = ProcmonChat()
-chat.set_summary(f"Total: {data['total_events']} events")
+# Chat with AI
+chat = CSVChat(csv_path)
+print(chat.ask("What persistence mechanisms were installed?"))
+print(chat.analyze_registry())
+print(chat.search("schtasks"))
 
-# Ask about specific categories
-registry_events = get_category_events(data, "registry", limit=100)
-events_text = format_events_for_ai(registry_events)
-print(chat.ask("What registry persistence was set up?", events=events_text))
-
-# Clear history for next category
-chat.clear()
+# Direct category analysis
+print(chat.analyze_files("Were any executables written?"))
+print(chat.analyze_network())
 ```
 
 ## Configuration

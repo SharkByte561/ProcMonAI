@@ -2,6 +2,34 @@
 
 All notable changes to ProcmonAI will be documented in this file.
 
+## [1.3.0] - 2024-11-28
+
+### Changed
+
+- **CSV-First Architecture**: Complete redesign using CSV as the primary format
+  - PML → CSV conversion using procmon-parser's native export format
+  - CSV files are portable, searchable, and can be opened in Excel
+  - AI chat queries filter CSV rows directly instead of re-parsing PML
+
+### Added
+
+- `pml_to_csv.py` - PML to CSV converter
+  - Identical format to Procmon's native "Save As CSV"
+  - Optional process filter during conversion
+  - Includes all Procmon columns (27 total)
+- `csv_chat.py` - CSV-based AI chat
+  - Auto-detects relevant events from question keywords
+  - Category shortcuts: `registry`, `files`, `network`, `processes`
+  - `search <pattern>` for path-based queries
+  - Efficient row filtering keeps token usage low
+- New commands: `convert`, `load`, `stats`
+
+### Technical
+
+- Uses procmon-parser's `get_compatible_csv_info()` for accurate export
+- Filters CSV rows before sending to Claude (max 150 per query)
+- Multi-turn conversation with automatic history trimming
+
 ## [1.2.0] - 2024-11-28
 
 ### Changed
