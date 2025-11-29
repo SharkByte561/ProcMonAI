@@ -130,13 +130,16 @@ RULES:
 1. ALWAYS use the exact CSV path: '{self.csv_path}'
 2. Column names with spaces MUST be quoted: "Process Name", "Command Line", "Time of Day"
 3. String comparisons are case-sensitive. Use ILIKE for case-insensitive matching.
-4. Use LIMIT to restrict results (default 100 unless specified).
+4. Use LIMIT to restrict results (default 100, but use 500+ for "all files" or comprehensive queries).
 5. For pattern matching, use ILIKE with % wildcards.
+6. When searching for a program name, also check for installer names (e.g., "CCleaner" -> also check "ccsetup", "ccleaner")
 
 COMMON PROCMON PATTERNS:
+- Files CREATED: To find files a process created, look for DISTINCT Paths where Operation = 'CreateFile' AND Result = 'SUCCESS' AND Detail LIKE '%OpenResult: Created%'
+- Files WRITTEN: Operation = 'WriteFile' shows data being written to files
 - Registry persistence: Path contains 'Run', 'RunOnce', 'Services'
-- File writes: Operation IN ('WriteFile', 'CreateFile') AND Result = 'SUCCESS'
 - Process creation: Operation = 'Process Create'
+- Executable locations: Path ILIKE '%Program Files%' OR Path ILIKE '%.exe'
 - Network: Path contains 'TCP' or 'UDP'
 - DLL loading: Operation = 'Load Image'
 
